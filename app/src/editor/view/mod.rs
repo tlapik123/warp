@@ -4291,15 +4291,23 @@ impl EditorView {
             self.stop_voice_input(true, ctx);
         }
 
-        #[cfg(windows)]
-        // On Windows, if there is selected text, users expect ctrl-c to copy.
-        if !self.selected_text(ctx).is_empty() {
-            self.copy(ctx);
+        if !self.can_edit(ctx) {
             return;
         }
 
-        if !self.can_edit(ctx) {
-            return;
+        let should_clear = !self.vim_mode_enabled(ctx)
+            || self
+                .vim_mode(ctx)
+                .is_some_and(|vim_mode| matches!(vim_mode, VimMode::Normal | VimMode::Insert));
+
+        // CASE 1: Text is selected → copy to system clipboard + clear selection
+        if should_clear && !self.is_password {
+            let selected = self.selected_text(ctx);
+            if !selected.is_empty() {
+                ctx.clipboard().write(ClipboardContent::plain_text(selected));
+                self.clear_selections(ctx);
+                return;
+            }
         }
 
         let terminal_view = ctx
@@ -4350,6 +4358,21 @@ impl EditorView {
                 })
         });
 
+        // CASE 2: Buffer has text, no selection → copy all + clear buffer
+        if should_clear
+            && !is_agent_responding
+            && !is_pending_passive_ai_block
+            && !self.is_password
+        {
+            let buffer_text = self.buffer_text(ctx);
+            if !buffer_text.is_empty() {
+                ctx.clipboard().write(ClipboardContent::plain_text(buffer_text));
+                self.clear_buffer(ctx);
+                return;
+            }
+        }
+
+        // CASE 3: Empty buffer → existing logic (emit CtrlC for SIGINT)
         let mut cleared_buffer_len = 0;
         if (!self.vim_mode_enabled(ctx)
             || self

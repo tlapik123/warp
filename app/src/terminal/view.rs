@@ -7926,7 +7926,6 @@ impl TerminalView {
 
     /// Copy if there is a selection. Otherwise, we defer to the normal ctrl-c
     /// behaviour.
-    #[cfg(windows)]
     fn ctrl_c_internal(
         &mut self,
         has_copiable_block_selection: bool,
@@ -7970,24 +7969,6 @@ impl TerminalView {
         if ctx.is_self_or_child_focused() {
             block.update(ctx, |block, ctx| block.try_steal_focus(ctx));
         }
-    }
-
-    #[cfg(not(windows))]
-    fn ctrl_c_internal(
-        &mut self,
-        has_copiable_block_selection: bool,
-        has_block_list_selection: bool,
-        has_alt_screen_selection: bool,
-        is_long_running: bool,
-        is_agent_in_control_of_command: bool,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if has_block_list_selection || has_copiable_block_selection {
-            self.clear_selections_when_shell_mode_without_focusing_input(ctx);
-        } else if has_alt_screen_selection {
-            self.model.lock().alt_screen_mut().clear_selection();
-        }
-        self.ctrl_c_to_active_block(is_long_running, is_agent_in_control_of_command, ctx);
     }
 
     fn ctrl_c_to_active_block(
