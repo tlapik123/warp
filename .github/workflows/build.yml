@@ -32,7 +32,7 @@ jobs:
         with:
           target_os: linux
           is_self_hosted: false
-          install_test_deps: true
+          install_release_deps: true
 
       - name: Install linuxdeploy
         run: ./script/linux/install_linuxdeploy
