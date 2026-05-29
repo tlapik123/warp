@@ -1,0 +1,117 @@
+name: Build and Test
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -C debuginfo=line-tables-only --cfg=web_sys_unstable_apis
+  WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS: 1
+
+jobs:
+  build-linux:
+    name: Build and Test (Linux x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          lfs: true
+
+      - uses: ./.github/actions/prepare_environment
+        with:
+          target_os: linux
+          is_self_hosted: false
+          install_test_deps: true
+
+      - name: Install linuxdeploy
+        run: ./script/linux/install_linuxdeploy
+
+      - name: Install cargo nextest
+        uses: taiki-e/install-action@9a29ce630c67077a359246f3e4f84941e05f28b5 # v1
+        with:
+          tool: nextest
+
+      - name: Install test shells
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y zsh fish
+
+      - name: Build OSS AppImage
+        id: bundle
+        run: |
+          ./script/bundle --channel oss --packages appimage --artifact app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify AppImage exists
+        run: |
+          ls -lh target/release-lto/bundle/linux/*.AppImage
+
+      # ── Tests ────────────────────────────────────────────────────────────
+
+      - name: Run ssh-agent for SSH tests
+        run: |
+          mkdir -p ~/.ssh
+          eval "$(ssh-agent -s)"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+
+      - name: Install vim for richer alt-screen tests
+        uses: ConorMacBride/install-package@3e7ad059e07782ee54fa35f827df52aae0626f30 # v1
+        with:
+          apt: vim
+
+      - name: Run unit tests
+        run: |
+          cargo nextest run --workspace --locked --exclude command-signatures-v2 -E "not package(integration)"
+        env:
+          WARP_SHELL_PATH: /usr/bin/zsh
+
+      - name: Run shell-agnostic integration tests
+        continue-on-error: true
+        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
+        with:
+          run: |
+            cargo nextest run --workspace --locked --exclude command-signatures-v2 -E "package(integration) and not test(shell_integration_tests)"
+        env:
+          WARP_SHELL_PATH: /usr/bin/zsh
+
+      - name: Run shell integration tests against zsh
+        continue-on-error: true
+        uses: coactions/setup-xvfb@b6b4fcfb9f5a895edadc3bc76318fae0ac17c8b3 # v1
+        with:
+          run: |
+            cargo nextest run --workspace --locked --exclude command-signatures-v2 -E "package(integration) and test(shell_integration_tests)"
+        env:
+          WARP_SHELL_PATH: /usr/bin/zsh
+
+      - name: Run doc tests
+        run: |
+          cargo test --workspace --locked --exclude command-signatures-v2 --doc
+
+      # ── Artifact Upload ──────────────────────────────────────────────────
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: warp-oss-linux-x86_64
+          path: target/release-lto/bundle/linux/*.AppImage
+          retention-days: 7
+
+      - name: Upload bundled resources
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: warp-oss-bundled-resources
+          path: target/release-lto/bundle/linux/resources/
+          retention-days: 7
