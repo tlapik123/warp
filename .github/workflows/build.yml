@@ -16,6 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -C debuginfo=line-tables-only --cfg=web_sys_unstable_apis
   WARPUI_USE_REAL_DISPLAY_IN_INTEGRATION_TESTS: 1
+  APPIMAGE_EXTRACT_AND_RUN: "1"
 
 jobs:
   build-linux:
